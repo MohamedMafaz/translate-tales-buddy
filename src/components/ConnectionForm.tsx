@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { useWordPress } from '@/context/WordPressContext';
-import { testConnection, fetchPosts, validateSiteUrl } from '@/services/wordpressService';
+import { testConnection, fetchPosts, validateSiteUrl, Post as WPPost } from '@/services/wordpressService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,7 +30,19 @@ const ConnectionForm: React.FC = () => {
       
       if (isConnected) {
         // Fetch posts if connection is successful
-        const posts = await fetchPosts(credentials);
+        const wpPosts = await fetchPosts(credentials);
+        
+        // Transform posts to match our context format
+        const posts = wpPosts.map(post => ({
+          id: post.id,
+          title: post.title,
+          content: post.content,
+          excerpt: post.excerpt,
+          slug: post.slug,
+          date: post.date,
+          link: post.link,
+          selected: false
+        }));
         
         // Update context
         setCredentials(credentials);

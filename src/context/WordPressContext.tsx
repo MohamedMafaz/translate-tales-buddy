@@ -1,6 +1,7 @@
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { toast } from 'sonner';
+import { Post as WPPost } from '@/services/wordpressService';
 
 type WordPressCredentials = {
   siteUrl: string;

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { WordPressProvider } from '@/context/WordPressContext';
 import ConnectionForm from '@/components/ConnectionForm';
@@ -8,9 +7,6 @@ import TranslationProcess from '@/components/TranslationProcess';
 import { useWordPress } from '@/context/WordPressContext';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-
-// Install framer-motion for animations
-<lov-add-dependency>framer-motion@latest</lov-add-dependency>
 
 const AppContent = () => {
   const { isConnected, selectedPosts } = useWordPress();

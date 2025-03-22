@@ -8,7 +8,7 @@ import { translatePost } from '@/services/translationService';
 import { publishTranslatedPost } from '@/services/wordpressService';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { ArrowRight, CheckCircle2, Translate, XCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Globe, XCircle } from 'lucide-react';
 
 interface TranslationProcessProps {
   selectedLanguage: string;
@@ -136,7 +136,7 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       <Card className="glass-card overflow-hidden">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-xl">
-            <Translate className="h-5 w-5 text-primary/80" />
+            <Globe className="h-5 w-5 text-primary/80" />
             Translation Process
           </CardTitle>
           <CardDescription>

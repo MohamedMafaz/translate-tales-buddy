@@ -15,6 +15,14 @@ export const LANGUAGES = [
   { code: 'ar', name: 'Arabic' },
 ];
 
+// Multiple API keys for fallback
+const API_KEYS = [
+  'AlzaSy-3FY7wxvYc_RqYyjFVVgHB4QOauRBPqsu',
+  'AIzaSyCFrwQrb3-31P1IX_w90RfMIPmEFZ8FJEM',
+  'AIzaSyCEnM63PvBjm3O8nWgdsQYOihVQESQMFzg',
+  'AIzaSyAR4hfspHTUvwsVNKq6DzCU8vvFcYAaK00'
+];
+
 // Regular expressions for identifying HTML content
 const IMAGE_REGEX = /<img[^>]+>/g;
 const VIDEO_REGEX = /<video[^>]+>.*?<\/video>/gs;
@@ -54,18 +62,31 @@ const restoreHtmlElements = (translatedText: string, elements: string[], placeho
   return restoredText;
 };
 
-// Split content into sentences, preserving HTML
-const splitIntoSentences = (content: string): string[] => {
-  // Extract HTML elements to protect them from being split
+// Split content into manageable chunks
+const splitContentIntoChunks = (content: string, maxLength = 1000): string[] => {
+  if (content.length <= maxLength) return [content];
+  
+  // Extract HTML elements to protect them
   const { text, elements, placeholders } = extractHtmlElements(content);
   
-  // Split content by periods, ensuring they're actual sentence endings
-  // This is a simplistic approach - a more advanced NLP solution would be better
-  const sentenceRegex = /([^.!?]+[.!?]+)/g;
-  const sentences = text.match(sentenceRegex) || [text];
+  // Split by natural paragraph breaks when possible
+  const paragraphs = text.split(/(?:\r?\n){2,}/);
+  const chunks: string[] = [];
+  let currentChunk = '';
   
-  // Restore HTML elements in each sentence
-  return sentences.map(sentence => restoreHtmlElements(sentence, elements, placeholders));
+  paragraphs.forEach(paragraph => {
+    if ((currentChunk.length + paragraph.length) < maxLength) {
+      currentChunk += paragraph + '\n\n';
+    } else {
+      if (currentChunk) chunks.push(currentChunk);
+      currentChunk = paragraph + '\n\n';
+    }
+  });
+  
+  if (currentChunk) chunks.push(currentChunk);
+  
+  // Restore HTML elements in each chunk
+  return chunks.map(chunk => restoreHtmlElements(chunk, elements, placeholders));
 };
 
 // Ensures that the translation ends with a period if needed
@@ -77,12 +98,19 @@ const ensureProperEnding = (translation: string): string => {
   return trimmed;
 };
 
-// Key for Google Gemini API
-// Note: In a production app, this should be stored securely
-const API_KEY = 'AlzaSy-3FY7wxvYc_RqYyjFVVgHB4QOauRBPqsu';
-
-// Translation function using Gemini API
-export const translateContent = async (content: string, targetLanguage: string): Promise<string> => {
+// Translation function with retry mechanism
+export const translateContent = async (
+  content: string, 
+  targetLanguage: string, 
+  isTitle = false,
+  retryCount = 0
+): Promise<string> => {
+  if (retryCount >= API_KEYS.length) {
+    throw new Error('All API keys exhausted. Unable to translate content.');
+  }
+  
+  const apiKey = API_KEYS[retryCount % API_KEYS.length];
+  
   try {
     // Extract and protect HTML elements
     const { text: extractedText, elements, placeholders } = extractHtmlElements(content);
@@ -93,20 +121,32 @@ export const translateContent = async (content: string, targetLanguage: string):
       .replace(/\s+/g, ' ')
       .trim();
     
-    // Prepare the prompt for Gemini API
-    const prompt = `
-      Translate the following content into ${targetLanguage}. 
-      Maintain the original meaning, tone, and style.
-      Keep sentence structure similar where possible.
-      Ensure each sentence ends with proper punctuation.
-      Do not translate or modify any placeholder tags like {{HTML_ELEMENT_0}}.
-      
-      Content to translate:
-      ${cleanedText}
-    `;
+    // Different prompt based on whether it's a title or content
+    let prompt;
     
-    // Call Gemini API (simplified example)
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${API_KEY}`, {
+    if (isTitle) {
+      prompt = `
+        Translate the following title into ${targetLanguage}.
+        Keep it concise and accurate.
+        Return only the translated title:
+        
+        ${cleanedText}
+      `;
+    } else {
+      prompt = `
+        Translate the following content into ${targetLanguage}. 
+        Maintain the original meaning, tone, and style.
+        Keep sentence structure similar where possible.
+        Ensure each sentence ends with proper punctuation.
+        Do not translate or modify any placeholder tags like {{HTML_ELEMENT_0}}.
+        Return only the translated content:
+        
+        ${cleanedText}
+      `;
+    }
+    
+    // Call Gemini API
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -122,10 +162,22 @@ export const translateContent = async (content: string, targetLanguage: string):
     });
     
     if (!response.ok) {
+      // If rate limited or other API error, retry with next API key
+      if (response.status === 429 || response.status >= 500) {
+        console.log(`API key ${apiKey} failed. Trying next key...`);
+        return translateContent(content, targetLanguage, isTitle, retryCount + 1);
+      }
       throw new Error(`Translation API error: ${response.status}`);
     }
     
     const data = await response.json();
+    
+    // Error handling for API response format
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts) {
+      console.error('Unexpected API response format:', data);
+      return translateContent(content, targetLanguage, isTitle, retryCount + 1);
+    }
+    
     const translatedText = data.candidates[0].content.parts[0].text;
     
     // Restore HTML elements
@@ -136,8 +188,9 @@ export const translateContent = async (content: string, targetLanguage: string):
     
   } catch (error) {
     console.error('Translation error:', error);
-    toast.error('Failed to translate content');
-    throw error;
+    
+    // Retry with next API key
+    return translateContent(content, targetLanguage, isTitle, retryCount + 1);
   }
 };
 
@@ -149,23 +202,29 @@ export const translatePost = async (
   onProgress?: (progress: number) => void
 ): Promise<{ title: string, content: string }> => {
   try {
-    // Translate title
-    const translatedTitle = await translateContent(title, targetLanguage);
+    // Translate title (pass isTitle=true)
+    const translatedTitle = await translateContent(title, targetLanguage, true);
     onProgress?.(25);
     
-    // Split content into manageable chunks (to handle API limits)
-    const contentChunks = splitIntoSentences(content);
+    // Split content into manageable chunks
+    const contentChunks = splitContentIntoChunks(content);
     let translatedContent = '';
     
     // Translate each chunk
     for (let i = 0; i < contentChunks.length; i++) {
       const chunk = contentChunks[i];
-      const translatedChunk = await translateContent(chunk, targetLanguage);
-      translatedContent += translatedChunk + ' ';
       
-      // Update progress
-      const progressPercentage = 25 + (75 * (i + 1) / contentChunks.length);
-      onProgress?.(progressPercentage);
+      try {
+        const translatedChunk = await translateContent(chunk, targetLanguage, false);
+        translatedContent += translatedChunk + ' ';
+        
+        // Update progress
+        const progressPercentage = 25 + (75 * (i + 1) / contentChunks.length);
+        onProgress?.(progressPercentage);
+      } catch (error) {
+        console.error(`Failed to translate chunk ${i+1}/${contentChunks.length}:`, error);
+        throw error;
+      }
     }
     
     return {

@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWordPress } from '@/context/WordPressContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +8,7 @@ import { translatePost } from '@/services/translationService';
 import { publishTranslatedPost } from '@/services/wordpressService';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { ArrowRight, CheckCircle2, Globe, XCircle } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Globe, XCircle, RefreshCcw } from 'lucide-react';
 
 interface TranslationProcessProps {
   selectedLanguage: string;
@@ -26,9 +26,20 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
   const [currentPostIndex, setCurrentPostIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<{ success: number; failed: number }>({ success: 0, failed: 0 });
+  const [retryCount, setRetryCount] = useState(0);
+  const [aborted, setAborted] = useState(false);
 
   const totalPosts = selectedPosts.length;
   const currentPost = selectedPosts[currentPostIndex];
+  
+  const MAX_RETRIES = 3;
+  
+  // Start the translation process
+  useEffect(() => {
+    if (status === 'idle' && selectedPosts.length > 0) {
+      startTranslation();
+    }
+  }, []);
   
   const startTranslation = async () => {
     if (selectedPosts.length === 0) {
@@ -50,11 +61,18 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
     setCurrentPostIndex(0);
     setProgress(0);
     setResults({ success: 0, failed: 0 });
+    setRetryCount(0);
+    setAborted(false);
     
     await processNextPost();
   };
   
   const processNextPost = async () => {
+    // Safety check to prevent infinite loops
+    if (aborted) {
+      return;
+    }
+    
     if (currentPostIndex >= totalPosts) {
       // All posts processed
       setStatus('completed');
@@ -64,6 +82,9 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
     const post = selectedPosts[currentPostIndex];
     
     try {
+      // Reset retry count for new post
+      setRetryCount(0);
+      
       // Start translation
       setStatus('translating');
       toast.info(`Translating post: ${post.title}`);
@@ -96,17 +117,43 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       setResults(prev => ({ ...prev, success: prev.success + 1 }));
       toast.success(`Successfully translated and published: ${post.title}`);
       
+      // Move to next post
+      setCurrentPostIndex(prev => prev + 1);
+      
+      // Process next post
+      await processNextPost();
+      
     } catch (error) {
       console.error(`Error processing post ${post.id}:`, error);
-      setResults(prev => ({ ...prev, failed: prev.failed + 1 }));
-      toast.error(`Failed to translate post: ${post.title}`);
+      
+      // Check if we should retry
+      if (retryCount < MAX_RETRIES) {
+        setRetryCount(prev => prev + 1);
+        toast.warning(`Retry attempt ${retryCount + 1} for post: ${post.title}`);
+        
+        // Wait a moment before retrying
+        setTimeout(() => {
+          processNextPost(); // Retry the same post
+        }, 3000);
+      } else {
+        // Max retries exceeded, move to next post
+        setResults(prev => ({ ...prev, failed: prev.failed + 1 }));
+        toast.error(`Failed to translate post after ${MAX_RETRIES} attempts: ${post.title}`);
+        
+        // Move to next post
+        setCurrentPostIndex(prev => prev + 1);
+        setRetryCount(0);
+        
+        // Continue with next post
+        await processNextPost();
+      }
     }
-    
-    // Move to next post
-    setCurrentPostIndex(prev => prev + 1);
-    
-    // Process next post
-    await processNextPost();
+  };
+  
+  const abortTranslation = () => {
+    setAborted(true);
+    setStatus('error');
+    toast.error('Translation process aborted');
   };
   
   const getStatusText = () => {
@@ -114,13 +161,13 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       case 'idle':
         return 'Ready to translate';
       case 'translating':
-        return `Translating post ${currentPostIndex + 1} of ${totalPosts}`;
+        return `Translating post ${currentPostIndex + 1} of ${totalPosts}${retryCount > 0 ? ` (Retry ${retryCount}/${MAX_RETRIES})` : ''}`;
       case 'publishing':
         return `Publishing translation ${currentPostIndex + 1} of ${totalPosts}`;
       case 'completed':
         return 'Translation completed';
       case 'error':
-        return 'Error occurred';
+        return 'Translation aborted';
       default:
         return '';
     }
@@ -155,17 +202,23 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
           </div>
           
           {/* Current post info */}
-          {status !== 'idle' && status !== 'completed' && currentPost && (
+          {status !== 'idle' && status !== 'completed' && status !== 'error' && currentPost && (
             <div className="space-y-1 bg-white/20 dark:bg-black/20 p-3 rounded-md">
               <div className="font-medium line-clamp-1">{currentPost.title}</div>
               <div className="text-sm text-muted-foreground line-clamp-1">
                 {status === 'translating' ? 'Translating content...' : 'Publishing...'}
+                {retryCount > 0 && status === 'translating' && (
+                  <span className="ml-2 text-amber-500">
+                    <RefreshCcw className="inline h-3 w-3 mr-1 animate-spin" />
+                    Retry {retryCount}/{MAX_RETRIES}
+                  </span>
+                )}
               </div>
             </div>
           )}
           
           {/* Results summary */}
-          {status === 'completed' && (
+          {(status === 'completed' || status === 'error') && (
             <div className="space-y-4">
               <div className="flex items-center justify-center gap-8 p-4">
                 <div className="text-center">
@@ -207,7 +260,17 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
             </Button>
           )}
           
-          {status === 'completed' && (
+          {(status === 'translating' || status === 'publishing') && (
+            <Button 
+              onClick={abortTranslation}
+              variant="destructive"
+              className="flex items-center gap-1"
+            >
+              Abort Translation <XCircle className="h-4 w-4 ml-1" />
+            </Button>
+          )}
+          
+          {(status === 'completed' || status === 'error') && (
             <Button 
               onClick={onTranslationComplete}
               className="flex items-center gap-1"

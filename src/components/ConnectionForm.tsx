@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
-import { useWordPress } from '@/context/WordPressContext';
-import { testConnection, fetchPosts, validateSiteUrl, Post as WPPost } from '@/services/wordpressService';
+import { useWordPress, Post } from '@/context/WordPressContext';
+import { testConnection, fetchPosts, validateSiteUrl } from '@/services/wordpressService';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,16 +9,17 @@ import { motion } from 'framer-motion';
 import { ArrowRight, Globe, Key, User } from 'lucide-react';
 
 const ConnectionForm: React.FC = () => {
-  const { setCredentials, setPosts, clearConnection, isConnected } = useWordPress();
+  const { setCredentials, setPosts, clearConnection, isConnected, setLoading, setError } = useWordPress();
   const [siteUrl, setSiteUrl] = useState('');
   const [username, setUsername] = useState('');
   const [appPassword, setAppPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
     
     try {
+      setIsConnecting(true);
       setLoading(true);
       
       const formattedUrl = validateSiteUrl(siteUrl);
@@ -33,11 +33,11 @@ const ConnectionForm: React.FC = () => {
         const wpPosts = await fetchPosts(credentials);
         
         // Transform posts to match our context format
-        const posts = wpPosts.map(post => ({
+        const posts: Post[] = wpPosts.map(post => ({
           id: post.id,
-          title: post.title,
-          content: post.content,
-          excerpt: post.excerpt,
+          title: typeof post.title === 'string' ? post.title : post.title.rendered,
+          content: typeof post.content === 'string' ? post.content : post.content.rendered,
+          excerpt: typeof post.excerpt === 'string' ? post.excerpt : post.excerpt.rendered,
           slug: post.slug,
           date: post.date,
           link: post.link,
@@ -47,13 +47,16 @@ const ConnectionForm: React.FC = () => {
         // Update context
         setCredentials(credentials);
         setPosts(posts);
+        setError(null);
         
         toast.success(`Connected to ${formattedUrl} successfully!`);
       }
     } catch (error) {
       console.error('Connection error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to connect');
       toast.error('Failed to connect. Please check your credentials and try again.');
     } finally {
+      setIsConnecting(false);
       setLoading(false);
     }
   };
@@ -161,9 +164,9 @@ const ConnectionForm: React.FC = () => {
             <Button 
               type="submit" 
               className="w-full transition-all"
-              disabled={loading}
+              disabled={isConnecting}
             >
-              {loading ? (
+              {isConnecting ? (
                 <span className="flex items-center">
                   <span className="animate-spin mr-2">⟳</span> Connecting...
                 </span>

@@ -1,5 +1,6 @@
 
 import { toast } from 'sonner';
+import { WPPostData } from '@/context/WordPressContext';
 
 export type WordPressCredentials = {
   siteUrl: string;
@@ -7,16 +8,7 @@ export type WordPressCredentials = {
   appPassword: string;
 };
 
-export type Post = {
-  id: number;
-  title: { rendered: string };
-  content: { rendered: string };
-  excerpt: { rendered: string };
-  slug: string;
-  date: string;
-  link: string;
-  selected?: boolean;
-};
+export type Post = WPPostData;
 
 export const validateSiteUrl = (url: string): string => {
   // Remove trailing slash if present
@@ -35,22 +27,33 @@ export const testConnection = async (credentials: WordPressCredentials): Promise
   const formattedUrl = validateSiteUrl(siteUrl);
   
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
     const response = await fetch(`${formattedUrl}/wp-json/wp/v2/users/me`, {
       method: 'GET',
       headers: {
         'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`)
-      }
+      },
+      signal: controller.signal
     });
     
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      throw new Error(`Failed to connect: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Failed to connect: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
     return !!data.id;
   } catch (error) {
     console.error('Connection test failed:', error);
-    toast.error('Failed to connect to WordPress site. Please check your credentials.');
+    if (error instanceof Error && error.name === 'AbortError') {
+      toast.error('Connection timed out. Please check your WordPress site URL and try again.');
+    } else {
+      toast.error('Failed to connect to WordPress site. Please check your credentials.');
+    }
     throw error;
   }
 };
@@ -60,28 +63,33 @@ export const fetchPosts = async (credentials: WordPressCredentials): Promise<Pos
   const formattedUrl = validateSiteUrl(siteUrl);
   
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+    
     const response = await fetch(`${formattedUrl}/wp-json/wp/v2/posts?per_page=100&order=desc&orderby=date`, {
       method: 'GET',
       headers: {
         'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`)
-      }
+      },
+      signal: controller.signal
     });
     
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      throw new Error(`Failed to fetch posts: ${response.status} ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Failed to fetch posts: ${response.status} - ${errorText}`);
     }
     
     const posts = await response.json();
-    return posts.map((post: Post) => ({
-      ...post,
-      selected: false,
-      title: post.title.rendered,
-      content: post.content.rendered,
-      excerpt: post.excerpt.rendered
-    }));
+    return posts;
   } catch (error) {
     console.error('Failed to fetch posts:', error);
-    toast.error('Failed to fetch posts. Please check your connection.');
+    if (error instanceof Error && error.name === 'AbortError') {
+      toast.error('Request to fetch posts timed out. Your WordPress site might be slow to respond.');
+    } else {
+      toast.error('Failed to fetch posts. Please check your connection.');
+    }
     throw error;
   }
 };
@@ -97,12 +105,14 @@ export const publishTranslatedPost = async (
   const formattedUrl = validateSiteUrl(siteUrl);
   
   try {
+    console.log(`Getting original post details for ID: ${originalPostId}`);
     // First, get the original post to ensure we have all needed metadata
     const originalPostResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/posts/${originalPostId}`, {
       method: 'GET',
       headers: {
         'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`)
-      }
+      },
+      signal: AbortSignal.timeout(30000)
     });
     
     if (!originalPostResponse.ok) {
@@ -110,6 +120,7 @@ export const publishTranslatedPost = async (
     }
     
     const originalPost = await originalPostResponse.json();
+    console.log(`Original post fetched: ${originalPost.slug}`);
     
     // Create the translated post
     const postData = {
@@ -125,20 +136,24 @@ export const publishTranslatedPost = async (
       }
     };
     
+    console.log(`Creating translated post with slug: ${postData.slug}`);
     const createResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/posts`, {
       method: 'POST',
       headers: {
         'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`),
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(postData)
+      body: JSON.stringify(postData),
+      signal: AbortSignal.timeout(60000)
     });
     
     if (!createResponse.ok) {
-      throw new Error(`Failed to create translated post: ${createResponse.status}`);
+      const errorText = await createResponse.text();
+      throw new Error(`Failed to create translated post: ${createResponse.status} - ${errorText}`);
     }
     
     const newPost = await createResponse.json();
+    console.log(`Successfully created post with ID: ${newPost.id}`);
     return newPost.id;
   } catch (error) {
     console.error('Failed to publish translated post:', error);

@@ -1,15 +1,20 @@
 
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Post as WPPost } from '@/services/wordpressService';
 
-type WordPressCredentials = {
-  siteUrl: string;
-  username: string;
-  appPassword: string;
+// Define types for WordPress API responses
+export type WPPostData = {
+  id: number;
+  title: { rendered: string };
+  content: { rendered: string };
+  excerpt: { rendered: string };
+  slug: string;
+  date: string;
+  link: string;
 };
 
-type Post = {
+// Define our app-specific Post type
+export type Post = {
   id: number;
   title: string;
   content: string;
@@ -18,6 +23,12 @@ type Post = {
   date: string;
   link: string;
   selected: boolean;
+};
+
+type WordPressCredentials = {
+  siteUrl: string;
+  username: string;
+  appPassword: string;
 };
 
 type WordPressContextType = {
@@ -31,7 +42,9 @@ type WordPressContextType = {
   selectAllPosts: () => void;
   unselectAllPosts: () => void;
   loading: boolean;
+  setLoading: (loading: boolean) => void;
   error: string | null;
+  setError: (error: string | null) => void;
   clearConnection: () => void;
 };
 
@@ -89,7 +102,9 @@ export const WordPressProvider: React.FC<{ children: ReactNode }> = ({ children 
         selectAllPosts,
         unselectAllPosts,
         loading,
+        setLoading,
         error,
+        setError,
         clearConnection
       }}
     >

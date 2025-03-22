@@ -1,4 +1,3 @@
-
 import { toast } from 'sonner';
 
 // Language options for translation
@@ -17,7 +16,6 @@ export const LANGUAGES = [
 
 // Multiple API keys for fallback
 const API_KEYS = [
-  'AlzaSy-3FY7wxvYc_RqYyjFVVgHB4QOauRBPqsu',
   'AIzaSyCFrwQrb3-31P1IX_w90RfMIPmEFZ8FJEM',
   'AIzaSyCEnM63PvBjm3O8nWgdsQYOihVQESQMFzg',
   'AIzaSyAR4hfspHTUvwsVNKq6DzCU8vvFcYAaK00'
@@ -98,100 +96,113 @@ const ensureProperEnding = (translation: string): string => {
   return trimmed;
 };
 
-// Translation function with retry mechanism
+// Translation function with retry mechanism and API key rotation
 export const translateContent = async (
   content: string, 
   targetLanguage: string, 
-  isTitle = false,
-  retryCount = 0
+  isTitle = false
 ): Promise<string> => {
-  if (retryCount >= API_KEYS.length) {
-    throw new Error('All API keys exhausted. Unable to translate content.');
-  }
+  let lastError: Error | null = null;
   
-  const apiKey = API_KEYS[retryCount % API_KEYS.length];
-  
-  try {
-    // Extract and protect HTML elements
-    const { text: extractedText, elements, placeholders } = extractHtmlElements(content);
+  // Try each API key
+  for (let i = 0; i < API_KEYS.length; i++) {
+    const apiKey = API_KEYS[i];
     
-    // Clean up HTML entities and excess whitespace
-    const cleanedText = extractedText
-      .replace(/&nbsp;/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    
-    // Different prompt based on whether it's a title or content
-    let prompt;
-    
-    if (isTitle) {
-      prompt = `
-        Translate the following title into ${targetLanguage}.
-        Keep it concise and accurate.
-        Return only the translated title:
-        
-        ${cleanedText}
-      `;
-    } else {
-      prompt = `
-        Translate the following content into ${targetLanguage}. 
-        Maintain the original meaning, tone, and style.
-        Keep sentence structure similar where possible.
-        Ensure each sentence ends with proper punctuation.
-        Do not translate or modify any placeholder tags like {{HTML_ELEMENT_0}}.
-        Return only the translated content:
-        
-        ${cleanedText}
-      `;
-    }
-    
-    // Call Gemini API
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          topP: 0.8,
-          topK: 40,
-        }
-      })
-    });
-    
-    if (!response.ok) {
-      // If rate limited or other API error, retry with next API key
-      if (response.status === 429 || response.status >= 500) {
-        console.log(`API key ${apiKey} failed. Trying next key...`);
-        return translateContent(content, targetLanguage, isTitle, retryCount + 1);
+    try {
+      console.log(`Attempting translation with API key ${i + 1}/${API_KEYS.length}`);
+      
+      // Extract and protect HTML elements
+      const { text: extractedText, elements, placeholders } = extractHtmlElements(content);
+      
+      // Clean up HTML entities and excess whitespace
+      const cleanedText = extractedText
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      
+      // Different prompt based on whether it's a title or content
+      let prompt;
+      
+      if (isTitle) {
+        prompt = `
+          Translate the following title into ${targetLanguage}.
+          Keep it concise and accurate.
+          Return only the translated title:
+          
+          ${cleanedText}
+        `;
+      } else {
+        prompt = `
+          Translate the following content into ${targetLanguage}. 
+          Maintain the original meaning, tone, and style.
+          Keep sentence structure similar where possible.
+          Ensure each sentence ends with proper punctuation.
+          Do not translate or modify any placeholder tags like {{HTML_ELEMENT_0}}.
+          Return only the translated content:
+          
+          ${cleanedText}
+        `;
       }
-      throw new Error(`Translation API error: ${response.status}`);
+      
+      // Call Gemini API
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.2,
+            topP: 0.8,
+            topK: 40,
+          }
+        }),
+        // Add a timeout to prevent hanging requests
+        signal: AbortSignal.timeout(30000)
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Translation API error: ${response.status} - ${await response.text()}`);
+      }
+      
+      const data = await response.json();
+      
+      // Check for valid API response
+      if (!data.candidates || 
+          !data.candidates[0] || 
+          !data.candidates[0].content || 
+          !data.candidates[0].content.parts) {
+        console.error('Unexpected API response format:', data);
+        throw new Error('Unexpected API response format');
+      }
+      
+      const translatedText = data.candidates[0].content.parts[0].text;
+      
+      // Restore HTML elements
+      const finalTranslation = restoreHtmlElements(translatedText, elements, placeholders);
+      
+      // Ensure proper sentence endings
+      return ensureProperEnding(finalTranslation);
+      
+    } catch (error) {
+      console.error(`Translation error with API key ${i + 1}:`, error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // If it's the last API key, throw the error
+      if (i === API_KEYS.length - 1) {
+        throw lastError;
+      }
+      
+      // Otherwise, continue to the next API key
+      console.log(`Switching to next API key ${i + 2}/${API_KEYS.length}`);
+      // Small delay before trying the next key
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
-    
-    const data = await response.json();
-    
-    // Error handling for API response format
-    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts) {
-      console.error('Unexpected API response format:', data);
-      return translateContent(content, targetLanguage, isTitle, retryCount + 1);
-    }
-    
-    const translatedText = data.candidates[0].content.parts[0].text;
-    
-    // Restore HTML elements
-    const finalTranslation = restoreHtmlElements(translatedText, elements, placeholders);
-    
-    // Ensure proper sentence endings
-    return ensureProperEnding(finalTranslation);
-    
-  } catch (error) {
-    console.error('Translation error:', error);
-    
-    // Retry with next API key
-    return translateContent(content, targetLanguage, isTitle, retryCount + 1);
   }
+  
+  // This should never be reached due to the throw in the last iteration
+  throw new Error('All API keys exhausted. Unable to translate content.');
 };
 
 // Function to translate a post title and content
@@ -223,7 +234,13 @@ export const translatePost = async (
         onProgress?.(progressPercentage);
       } catch (error) {
         console.error(`Failed to translate chunk ${i+1}/${contentChunks.length}:`, error);
-        throw error;
+        
+        // Continue with other chunks despite this failure
+        translatedContent += `[TRANSLATION ERROR: ${error instanceof Error ? error.message : 'Unknown error'}] `;
+        
+        // Update progress even for failed chunk
+        const progressPercentage = 25 + (75 * (i + 1) / contentChunks.length);
+        onProgress?.(progressPercentage);
       }
     }
     
@@ -233,7 +250,6 @@ export const translatePost = async (
     };
   } catch (error) {
     console.error('Post translation error:', error);
-    toast.error('Failed to translate post');
     throw error;
   }
 };

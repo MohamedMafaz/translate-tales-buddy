@@ -10,7 +10,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { Globe, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { LANGUAGES } from '@/services/translationService';
 
 type TranslationProcessProps = {
   selectedLanguage: string;
@@ -40,7 +39,6 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       if (currentPostIndex >= selectedPosts.length) {
         // All posts processed
         setIsTranslating(false);
-        setProgress(100); // Ensure progress reaches 100% when complete
         toast.success(`Translation complete! ${translationResults.filter(r => r.success).length} posts translated.`);
         return;
       }
@@ -52,26 +50,14 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
         
         // Update progress as translation progresses
         const handleProgress = (progressPercent: number) => {
-          // Scale progress to account for the current post index
-          const overallProgress = ((currentPostIndex / selectedPosts.length) * 100) + 
-                                  (progressPercent / selectedPosts.length);
-          setProgress(Math.min(overallProgress, 99)); // Cap at 99% until fully complete
+          setProgress(progressPercent);
         };
 
-        // Get the language code directly from the selectedLanguage (which should already be the code like 'de', 'zh')
-        const languageCode = selectedLanguage;
-        
-        // Find the language name for translation service
-        const languageObj = LANGUAGES.find(lang => lang.code === languageCode);
-        const languageName = languageObj?.name || languageCode;
-        
-        console.log(`Starting translation of post: ${currentPost.title} to language: ${languageName}`);
-        console.log(`Using language code for WordPress: ${languageCode}`);
-        
+        console.log(`Starting translation of post: ${currentPost.title}`);
         const translatedPost = await translatePost(
           currentPost.title, 
           currentPost.content, 
-          languageName,
+          selectedLanguage,
           handleProgress
         );
         
@@ -80,14 +66,14 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
           return;
         }
         
-        console.log(`Publishing translated post: ${translatedPost.title} with language code: ${languageCode}`);
-        // Publish the translated post with language code
+        console.log(`Publishing translated post: ${translatedPost.title}`);
+        // Publish the translated post
         const newPostId = await publishTranslatedPost(
           credentials,
           currentPost.id,
           translatedPost.title,
           translatedPost.content,
-          languageCode
+          selectedLanguage.substring(0, 2).toLowerCase()
         );
         
         setTranslationResults(prev => [

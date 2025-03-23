@@ -53,7 +53,10 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
           setProgress(progressPercent);
         };
 
-        console.log(`Starting translation of post: ${currentPost.title}`);
+        // Get the language code (e.g., 'zh' from 'Chinese (Simplified)')
+        const languageCode = selectedLanguage.substring(0, 2).toLowerCase();
+        console.log(`Starting translation of post: ${currentPost.title} to language code: ${languageCode}`);
+        
         const translatedPost = await translatePost(
           currentPost.title, 
           currentPost.content, 
@@ -66,14 +69,14 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
           return;
         }
         
-        console.log(`Publishing translated post: ${translatedPost.title}`);
-        // Publish the translated post
+        console.log(`Publishing translated post: ${translatedPost.title} with language code: ${languageCode}`);
+        // Publish the translated post with language code
         const newPostId = await publishTranslatedPost(
           credentials,
           currentPost.id,
           translatedPost.title,
           translatedPost.content,
-          selectedLanguage.substring(0, 2).toLowerCase()
+          languageCode
         );
         
         setTranslationResults(prev => [

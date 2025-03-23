@@ -122,21 +122,26 @@ export const publishTranslatedPost = async (
     const originalPost = await originalPostResponse.json();
     console.log(`Original post fetched: ${originalPost.slug}`);
     
+    // Create slug with language code
+    const slugWithLanguage = `${originalPost.slug}-${language.toLowerCase()}`;
+    
     // Create the translated post
     const postData = {
       title: translatedTitle,
       content: translatedContent,
       status: 'publish',
-      slug: `${originalPost.slug}-${language.toLowerCase()}`, // Append language code to slug
+      slug: slugWithLanguage,
       categories: originalPost.categories,
       tags: originalPost.tags,
+      lang: language.toLowerCase(), // Add the language code parameter
       meta: {
         ...originalPost.meta,
-        polylang_current_language: language // Set Polylang language
+        polylang_current_language: language, // For Polylang plugin compatibility
+        _yoast_wpseo_metadesc: originalPost.meta?._yoast_wpseo_metadesc || '' // Maintain Yoast SEO meta description
       }
     };
     
-    console.log(`Creating translated post with slug: ${postData.slug}`);
+    console.log(`Creating translated post with slug: ${postData.slug} and language: ${language}`);
     const createResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/posts`, {
       method: 'POST',
       headers: {

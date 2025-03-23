@@ -125,8 +125,25 @@ export const publishTranslatedPost = async (
     // Create slug with language code
     const slugWithLanguage = `${originalPost.slug}-${language.toLowerCase()}`;
     
-    // Create the translated post with explicit language parameters
-    // Note: Different WordPress multilingual plugins may use different parameters
+    // Check if featured image exists and get its URL
+    let featuredImageUrl = null;
+    if (originalPost.featured_media) {
+      const mediaResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/media/${originalPost.featured_media}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`)
+        },
+        signal: AbortSignal.timeout(30000)
+      });
+      
+      if (mediaResponse.ok) {
+        const mediaData = await mediaResponse.json();
+        featuredImageUrl = mediaData.source_url;
+        console.log(`Featured image URL: ${featuredImageUrl}`);
+      }
+    }
+    
+    // Create the translated post payload following the Python example format
     const postData = {
       title: translatedTitle,
       content: translatedContent,
@@ -134,25 +151,37 @@ export const publishTranslatedPost = async (
       slug: slugWithLanguage,
       categories: originalPost.categories,
       tags: originalPost.tags,
-      // Add multiple language parameters to support different multilingual plugins
+      // Set the language parameter in different ways to ensure compatibility
       lang: language.toLowerCase(),
+      // WordPress REST API normally doesn't use these directly but certain plugins might
+      // We're including them to match your Python implementation
       language: language.toLowerCase(),
       locale: language.toLowerCase(),
+      // Add featured image if available
+      featured_media: originalPost.featured_media,
+      // Add metadata
       meta: {
         ...originalPost.meta,
-        polylang_current_language: language,
-        _yoast_wpseo_metadesc: originalPost.meta?._yoast_wpseo_metadesc || ''
+        // For Polylang plugin
+        polylang_current_language: language.toLowerCase(),
+        // For Yoast SEO
+        _yoast_wpseo_metadesc: originalPost.meta?._yoast_wpseo_metadesc || '',
+        // For WPML
+        wpml_language: language.toLowerCase()
       }
     };
     
-    console.log(`Creating translated post with slug: ${postData.slug} and language: ${language}`);
-    console.log('Post data being sent:', JSON.stringify(postData)); // Log the exact payload being sent
+    console.log(`Creating translated post with language code: ${language.toLowerCase()}`);
+    console.log('Post data being sent:', JSON.stringify(postData));
     
     const createResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/posts`, {
       method: 'POST',
       headers: {
         'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`),
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        // Add explicit language header for WPML support
+        'X-WPML-Language': language.toLowerCase()
       },
       body: JSON.stringify(postData),
       signal: AbortSignal.timeout(60000)

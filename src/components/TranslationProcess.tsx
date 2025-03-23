@@ -54,18 +54,20 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
           setProgress(progressPercent);
         };
 
-        // Extract the language code from the selected language
-        // Find the language object that matches the selected language code
-        const languageObj = LANGUAGES.find(lang => lang.code === selectedLanguage);
-        const languageCode = selectedLanguage.toLowerCase(); // Default
+        // Get the language code directly from the selectedLanguage (which should already be the code like 'de', 'zh')
+        const languageCode = selectedLanguage;
         
-        console.log(`Starting translation of post: ${currentPost.title} to language: ${languageObj?.name || selectedLanguage}`);
-        console.log(`Using language code: ${languageCode}`);
+        // Find the language name for translation service
+        const languageObj = LANGUAGES.find(lang => lang.code === languageCode);
+        const languageName = languageObj?.name || languageCode;
+        
+        console.log(`Starting translation of post: ${currentPost.title} to language: ${languageName}`);
+        console.log(`Using language code for WordPress: ${languageCode}`);
         
         const translatedPost = await translatePost(
           currentPost.title, 
           currentPost.content, 
-          languageObj?.name || selectedLanguage,
+          languageName,
           handleProgress
         );
         

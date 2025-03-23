@@ -40,6 +40,7 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       if (currentPostIndex >= selectedPosts.length) {
         // All posts processed
         setIsTranslating(false);
+        setProgress(100); // Ensure progress reaches 100% when complete
         toast.success(`Translation complete! ${translationResults.filter(r => r.success).length} posts translated.`);
         return;
       }
@@ -51,7 +52,10 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
         
         // Update progress as translation progresses
         const handleProgress = (progressPercent: number) => {
-          setProgress(progressPercent);
+          // Scale progress to account for the current post index
+          const overallProgress = ((currentPostIndex / selectedPosts.length) * 100) + 
+                                  (progressPercent / selectedPosts.length);
+          setProgress(Math.min(overallProgress, 99)); // Cap at 99% until fully complete
         };
 
         // Get the language code directly from the selectedLanguage (which should already be the code like 'de', 'zh')

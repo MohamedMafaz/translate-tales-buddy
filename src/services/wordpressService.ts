@@ -125,7 +125,8 @@ export const publishTranslatedPost = async (
     // Create slug with language code
     const slugWithLanguage = `${originalPost.slug}-${language.toLowerCase()}`;
     
-    // Create the translated post
+    // Create the translated post with explicit language parameters
+    // Note: Different WordPress multilingual plugins may use different parameters
     const postData = {
       title: translatedTitle,
       content: translatedContent,
@@ -133,15 +134,20 @@ export const publishTranslatedPost = async (
       slug: slugWithLanguage,
       categories: originalPost.categories,
       tags: originalPost.tags,
-      lang: language.toLowerCase(), // Add the language code parameter
+      // Add multiple language parameters to support different multilingual plugins
+      lang: language.toLowerCase(),
+      language: language.toLowerCase(),
+      locale: language.toLowerCase(),
       meta: {
         ...originalPost.meta,
-        polylang_current_language: language, // For Polylang plugin compatibility
-        _yoast_wpseo_metadesc: originalPost.meta?._yoast_wpseo_metadesc || '' // Maintain Yoast SEO meta description
+        polylang_current_language: language,
+        _yoast_wpseo_metadesc: originalPost.meta?._yoast_wpseo_metadesc || ''
       }
     };
     
     console.log(`Creating translated post with slug: ${postData.slug} and language: ${language}`);
+    console.log('Post data being sent:', JSON.stringify(postData)); // Log the exact payload being sent
+    
     const createResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/posts`, {
       method: 'POST',
       headers: {
@@ -154,6 +160,7 @@ export const publishTranslatedPost = async (
     
     if (!createResponse.ok) {
       const errorText = await createResponse.text();
+      console.error('WordPress API error response:', errorText);
       throw new Error(`Failed to create translated post: ${createResponse.status} - ${errorText}`);
     }
     

@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { Globe, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { LANGUAGES } from '@/services/translationService';
 
 type TranslationProcessProps = {
   selectedLanguage: string;
@@ -53,14 +54,18 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
           setProgress(progressPercent);
         };
 
-        // Get the language code (e.g., 'zh' from 'Chinese (Simplified)')
-        const languageCode = selectedLanguage.substring(0, 2).toLowerCase();
-        console.log(`Starting translation of post: ${currentPost.title} to language code: ${languageCode}`);
+        // Extract the language code from the selected language
+        // Find the language object that matches the selected language code
+        const languageObj = LANGUAGES.find(lang => lang.code === selectedLanguage);
+        const languageCode = selectedLanguage.toLowerCase(); // Default
+        
+        console.log(`Starting translation of post: ${currentPost.title} to language: ${languageObj?.name || selectedLanguage}`);
+        console.log(`Using language code: ${languageCode}`);
         
         const translatedPost = await translatePost(
           currentPost.title, 
           currentPost.content, 
-          selectedLanguage,
+          languageObj?.name || selectedLanguage,
           handleProgress
         );
         

@@ -39,6 +39,7 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       if (currentPostIndex >= selectedPosts.length) {
         // All posts processed
         setIsTranslating(false);
+        setProgress(100); // Ensure progress reaches 100% when done
         toast.success(`Translation complete! ${translationResults.filter(r => r.success).length} posts translated.`);
         return;
       }
@@ -46,11 +47,14 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
       const currentPost = selectedPosts[currentPostIndex];
       
       try {
-        setProgress(0);
+        setProgress(Math.min(Math.round((currentPostIndex / selectedPosts.length) * 100), 99)); // Keep progress under 100% until fully complete
         
         // Update progress as translation progresses
         const handleProgress = (progressPercent: number) => {
-          setProgress(progressPercent);
+          // Scale the progress to the current post's portion of the overall job
+          const postProgress = progressPercent / selectedPosts.length;
+          const overallProgress = Math.round((currentPostIndex / selectedPosts.length) * 100 + postProgress);
+          setProgress(Math.min(overallProgress, 99)); // Don't reach 100% until everything is done
         };
 
         console.log(`Starting translation of post: ${currentPost.title}`);
@@ -67,13 +71,16 @@ const TranslationProcess: React.FC<TranslationProcessProps> = ({
         }
         
         console.log(`Publishing translated post: ${translatedPost.title}`);
-        // Publish the translated post
+        // Get the language code (first 2 letters of the language string)
+        const language_code = selectedLanguage.substring(0, 2).toLowerCase();
+        
+        // Publish the translated post with the language code
         const newPostId = await publishTranslatedPost(
           credentials,
           currentPost.id,
           translatedPost.title,
           translatedPost.content,
-          selectedLanguage.substring(0, 2).toLowerCase()
+          language_code
         );
         
         setTranslationResults(prev => [

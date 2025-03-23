@@ -94,12 +94,18 @@ export const fetchPosts = async (credentials: WordPressCredentials): Promise<Pos
   }
 };
 
+/**
+ * Creates a new translated post in WordPress
+ */
 export const publishTranslatedPost = async (
   credentials: WordPressCredentials,
   originalPostId: number,
   translatedTitle: string,
   translatedContent: string,
-  language: string
+  language_code: string,
+  featuredImageUrl?: string,
+  metaDescription?: string,
+  originalPermalink?: string
 ): Promise<number> => {
   const { siteUrl, username, appPassword } = credentials;
   const formattedUrl = validateSiteUrl(siteUrl);
@@ -122,27 +128,80 @@ export const publishTranslatedPost = async (
     const originalPost = await originalPostResponse.json();
     console.log(`Original post fetched: ${originalPost.slug}`);
     
+    // Setup language parameters for various multilingual plugins
+    // Prepare meta fields for the post
+    const meta: Record<string, any> = {
+      ...originalPost.meta,
+    };
+    
+    // Set language for Polylang
+    meta.polylang_current_language = language_code;
+    
+    // If meta description is provided, add it for SEO plugins
+    if (metaDescription) {
+      meta._yoast_wpseo_metadesc = metaDescription; // Yoast SEO
+      meta._aioseo_description = metaDescription; // All in One SEO
+      meta._seopress_titles_desc = metaDescription; // SEOPress
+    }
+    
     // Create the translated post
-    const postData = {
+    const postData: Record<string, any> = {
       title: translatedTitle,
       content: translatedContent,
       status: 'publish',
-      slug: `${originalPost.slug}-${language.toLowerCase()}`, // Append language code to slug
+      slug: `${originalPost.slug}-${language_code.toLowerCase()}`, // Append language code to slug
       categories: originalPost.categories,
       tags: originalPost.tags,
-      meta: {
-        ...originalPost.meta,
-        polylang_current_language: language // Set Polylang language
-      }
+      meta: meta
     };
     
-    console.log(`Creating translated post with slug: ${postData.slug}`);
+    // Add featured image if available
+    if (featuredImageUrl) {
+      // Try to find the media item ID from the URL
+      try {
+        const mediaResponse = await fetch(
+          `${formattedUrl}/wp-json/wp/v2/media?search=${encodeURIComponent(featuredImageUrl)}`,
+          {
+            method: 'GET',
+            headers: {
+              'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`)
+            },
+            signal: AbortSignal.timeout(15000)
+          }
+        );
+        
+        if (mediaResponse.ok) {
+          const mediaItems = await mediaResponse.json();
+          if (mediaItems && mediaItems.length > 0) {
+            postData.featured_media = mediaItems[0].id;
+          }
+        }
+      } catch (mediaError) {
+        console.warn("Error fetching featured image:", mediaError);
+        // Continue without setting featured image
+      }
+    }
+    
+    // If original permalink is provided, store it as metadata for reference
+    if (originalPermalink) {
+      meta._translated_original_url = originalPermalink;
+    }
+    
+    console.log(`Creating translated post with slug: ${postData.slug} in language: ${language_code}`);
+    
+    // Set language headers for various multilingual plugins
+    const headers: Record<string, string> = {
+      'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`),
+      'Content-Type': 'application/json',
+      'X-WP-Lang': language_code // For WPML and some custom setups
+    };
+    
+    // For Polylang REST specific header
+    headers['X-Polylang-Language'] = language_code;
+    
     const createResponse = await fetch(`${formattedUrl}/wp-json/wp/v2/posts`, {
       method: 'POST',
-      headers: {
-        'Authorization': 'Basic ' + btoa(`${username}:${appPassword}`),
-        'Content-Type': 'application/json'
-      },
+      headers: headers,
       body: JSON.stringify(postData),
       signal: AbortSignal.timeout(60000)
     });
